@@ -5,18 +5,18 @@
 #include <time.h>
 #include <stdbool.h>
 
-/* 1TB/8 = 128GB of direct space */
-/* 2^37 direct size */
-/* 2^37 / 2^12 = 2^25 = 32M */
-#define TOTAL_SIZE    (1ULL << 34)
+#define TOTAL_SIZE    (1ULL << 33)
 #define DIRECT_SIZE   (TOTAL_SIZE / 16)
 #define BUCKET_COUNT  (DIRECT_SIZE / BUCKET_SIZE)
-#define BUCKET_SIZE   (1ULL << 12)
+#define BUCKET_SIZE   (4ULL << 10)
+#define OVERFLOW_THRESHOLD (6ULL << 10)
 #define COMPRESSION_RATIO 0.5
 
 #define TOTAL_OBJECT_COUNT(locality_size)  ((TOTAL_SIZE - DIRECT_SIZE) / (locality_size))
 
-#define REPEAT_COUNT  20
+#define REPEAT_COUNT  (128)
+
+#define MAX(x, y)   ((x) > (y) ? (x) : (y))
 
 struct result 
 {
@@ -39,10 +39,10 @@ static inline struct result simulate(unsigned compressed_locality_size, unsigned
     unsigned iter = 0;
     for(iter = 0; iter < TOTAL_OBJECT_COUNT(compressed_locality_size); iter++) {
         unsigned index = random() % BUCKET_COUNT;
-        bool old_overflow = buckets[index].byte_count > BUCKET_SIZE;
+        bool old_overflow = buckets[index].byte_count > OVERFLOW_THRESHOLD;
         buckets[index].byte_count += locality_ptrs_size;
         buckets[index].obj_count++;
-        bool new_overflow = buckets[index].byte_count > BUCKET_SIZE;
+        bool new_overflow = buckets[index].byte_count > OVERFLOW_THRESHOLD;
         if(new_overflow) {
             if(old_overflow) {
                 res.objects_in_overflowed_buckets++;
@@ -63,37 +63,53 @@ static inline struct result simulate(unsigned compressed_locality_size, unsigned
 
 static inline void simulate_repeatedly(void)
 {
-    printf("Bucket count = %llu, compression_ratio = %g\n",
-           BUCKET_COUNT, COMPRESSION_RATIO);
+    printf("Total size = %llu MB, Bucket count = %llu, bucket size = %lluKB, compression_ratio = %g\n",
+           TOTAL_SIZE >> 20, BUCKET_COUNT, BUCKET_SIZE >> 10, COMPRESSION_RATIO);
     unsigned raw_locality_size;
-    for(raw_locality_size = (1ULL<<16); raw_locality_size <= (1ULL<<20); raw_locality_size *= 2) {
+    for(raw_locality_size = (1ULL<<19); raw_locality_size <= (1ULL<<19); raw_locality_size *= 2) {
         unsigned compressed_locality_size = raw_locality_size * COMPRESSION_RATIO;
         unsigned ptr_count = raw_locality_size >> 12;
         unsigned locality_ptrs_size = 15 + 8*ptr_count;
 
         double total_max = 0, total_overflows = 0, total_objects_in_overflowed_buckets = 0;
+        unsigned worst_max = 0, worst_overflows = 0, worst_objects_in_overflowed_buckets = 0;
         unsigned i;
         for(i = 0; i < REPEAT_COUNT; i++) {
             struct result res = simulate(compressed_locality_size, locality_ptrs_size);
             total_max += res.max;
+            worst_max = MAX(worst_max, res.max);
             total_overflows += res.overflows;
+            worst_overflows = MAX(worst_overflows, res.overflows);
             total_objects_in_overflowed_buckets += res.objects_in_overflowed_buckets;
+            worst_objects_in_overflowed_buckets =
+                MAX(worst_objects_in_overflowed_buckets, res.objects_in_overflowed_buckets);
         }
         unsigned total_object_count = TOTAL_OBJECT_COUNT(compressed_locality_size);
-        printf("Locality size: %7u, Object count: %6u, Avg bucket size: %7g => Max bucket size: %7g. Overflows = %8g Objects in overflowed = %g (%g%%)\n",
-               raw_locality_size,
-               total_object_count,
+        printf("Locality size: %7u, Object count: %6u, Avg bucket util.: %7g, %u runs:\n"
+               "    Avg Max bucket util.: %7g.   Avg Overflows = %8g Objects in overflowed = %g (%g%%)\n"
+               "  Worst Max bucket util.: %7u. Worst Overflows = %8u Worst Objects in overflowed = %u (%g%%)\n",
+               raw_locality_size, total_object_count,
                1.0 * total_object_count * locality_ptrs_size / BUCKET_COUNT,
+               REPEAT_COUNT,
+               /* Avg's */
                total_max / REPEAT_COUNT,
                total_overflows / REPEAT_COUNT,
                total_objects_in_overflowed_buckets / REPEAT_COUNT,
-               total_objects_in_overflowed_buckets / REPEAT_COUNT * 100.0 / total_object_count);
+               total_objects_in_overflowed_buckets / REPEAT_COUNT * 100.0 / total_object_count,
+               /* Worst's */
+               worst_max,
+               worst_overflows,
+               worst_objects_in_overflowed_buckets,
+               worst_objects_in_overflowed_buckets * 100.0 / total_object_count);
     }
 }
 
 int main()
 {
     srandom(time(NULL));
-    simulate_repeatedly();
+    unsigned i;
+    for(i = 0; i < 16; i++) {
+        simulate_repeatedly();
+    }
     return 0;
 }
