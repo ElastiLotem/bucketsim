@@ -5,11 +5,11 @@
 #include <time.h>
 #include <stdbool.h>
 
-#define TOTAL_SIZE    (1ULL << 33)
+#define TOTAL_SIZE    (1ULL << 40)
 #define DIRECT_SIZE   (TOTAL_SIZE / 16)
 #define BUCKET_COUNT  (DIRECT_SIZE / BUCKET_SIZE)
 #define BUCKET_SIZE   (4ULL << 10)
-#define OVERFLOW_THRESHOLD (6ULL << 10)
+#define OVERFLOW_THRESHOLD (4ULL << 10)
 #define COMPRESSION_RATIO 0.5
 
 #define TOTAL_OBJECT_COUNT(locality_size)  ((TOTAL_SIZE - DIRECT_SIZE) / (locality_size))
@@ -69,7 +69,7 @@ static inline void simulate_repeatedly(void)
     for(raw_locality_size = (1ULL<<19); raw_locality_size <= (1ULL<<19); raw_locality_size *= 2) {
         unsigned compressed_locality_size = raw_locality_size * COMPRESSION_RATIO;
         unsigned ptr_count = raw_locality_size >> 12;
-        unsigned locality_ptrs_size = 15 + 8*ptr_count;
+        unsigned locality_ptrs_size = 15 + 12*ptr_count;
 
         double total_max = 0, total_overflows = 0, total_objects_in_overflowed_buckets = 0;
         unsigned worst_max = 0, worst_overflows = 0, worst_objects_in_overflowed_buckets = 0;
