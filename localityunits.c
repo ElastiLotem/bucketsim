@@ -4,44 +4,55 @@
 #include <string.h>
 #include <time.h>
 #include <stdbool.h>
+#include <infra/arithmetic_api.h>
+#include <infra/dstruct/hash.h>
 
-#define TOTAL_SIZE    (1ULL << 40)
-#define DIRECT_SIZE   (TOTAL_SIZE / 16)
+#define TOTAL_SIZE    (1ULL << 38)
+#define DIRECT_SIZE   (TOTAL_SIZE / 4)
 #define BUCKET_COUNT  (DIRECT_SIZE / BUCKET_SIZE)
-#define BUCKET_SIZE   (4ULL << 10)
-#define OVERFLOW_THRESHOLD (4ULL << 10)
-#define COMPRESSION_RATIO 0.5
+#define BUCKET_SIZE   (8ULL << 10)
+#define OVERFLOW_THRESHOLD (8ULL << 10)
+#define COMPRESSION_RATIO 0.6842105263157895
+
+#define MAX_OBJS_PER_BUCKET  16
+
+#define LOCALITY_UNIT_SIZE(ptr_count)      (32 + ((ptr_count) * 14))
 
 #define TOTAL_OBJECT_COUNT(locality_size)  ((TOTAL_SIZE - DIRECT_SIZE) / (locality_size))
 
-#define REPEAT_COUNT  (128)
+#define REPEAT_COUNT  (4*128)
 
-#define MAX(x, y)   ((x) > (y) ? (x) : (y))
-
-struct result 
-{
+struct result {
     unsigned max;
-    unsigned max_count;
+    unsigned max_count;         /* TODO: remove? */
     unsigned overflows;
+    unsigned bucket_utilization_in_objs[MAX_OBJS_PER_BUCKET+1];
     unsigned objects_in_overflowed_buckets;
 };
+static inline struct result result_init(unsigned bucket_count)
+{
+    return (struct result){ 0, 0, 0, {bucket_count}, 0 };
+}
 
 static inline struct result simulate(unsigned compressed_locality_size, unsigned locality_ptrs_size)
 {
-    struct bucket 
+    struct bucket
     {
         unsigned obj_count;
         unsigned byte_count;
     };
     static struct bucket buckets[BUCKET_COUNT]; // Not thread safe!
     memset(buckets, 0, sizeof buckets);
-    struct result res = { 0, 0, 0, 0 };
+    struct result res = result_init(BUCKET_COUNT);
     unsigned iter = 0;
     for(iter = 0; iter < TOTAL_OBJECT_COUNT(compressed_locality_size); iter++) {
-        unsigned index = random() % BUCKET_COUNT;
+        unsigned murmur = hash__murmur_hash_64a(PS(iter), 0);
+        unsigned index = murmur /* random() */ % BUCKET_COUNT;
         bool old_overflow = buckets[index].byte_count > OVERFLOW_THRESHOLD;
         buckets[index].byte_count += locality_ptrs_size;
+        res.bucket_utilization_in_objs[buckets[index].obj_count]--;
         buckets[index].obj_count++;
+        res.bucket_utilization_in_objs[buckets[index].obj_count]++;
         bool new_overflow = buckets[index].byte_count > OVERFLOW_THRESHOLD;
         if(new_overflow) {
             if(old_overflow) {
@@ -61,6 +72,29 @@ static inline struct result simulate(unsigned compressed_locality_size, unsigned
     return res;
 }
 
+static void print_histogram(struct result res)
+{
+    unsigned i;
+    printf("  --------------------------\n");
+    for(i=0; i < MAX_OBJS_PER_BUCKET+1; i++) {
+        printf("  %8d", i);
+    }
+    printf("\n");
+    for(i=0; i < MAX_OBJS_PER_BUCKET+1; i++) {
+        printf("  %8d", res.bucket_utilization_in_objs[i]);
+    }
+    printf("\n");
+    for(i=0; i < MAX_OBJS_PER_BUCKET+1; i++) {
+        unsigned prev = i > 0 ? res.bucket_utilization_in_objs[i-1] : 0;
+        if(0 == prev) {
+            printf("  %8s", "");
+        } else {
+            printf("  .%07llu", 10000000ULL * res.bucket_utilization_in_objs[i] / prev);
+        }
+    }
+    printf("\n  --------------------------\n");
+}
+
 static inline void simulate_repeatedly(void)
 {
     printf("Total size = %llu MB, Bucket count = %llu, bucket size = %lluKB, compression_ratio = %g\n",
@@ -69,21 +103,28 @@ static inline void simulate_repeatedly(void)
     for(raw_locality_size = (1ULL<<19); raw_locality_size <= (1ULL<<19); raw_locality_size *= 2) {
         unsigned compressed_locality_size = raw_locality_size * COMPRESSION_RATIO;
         unsigned ptr_count = raw_locality_size >> 12;
-        unsigned locality_ptrs_size = 15 + 12*ptr_count;
+        unsigned locality_ptrs_size = LOCALITY_UNIT_SIZE(ptr_count);
+
+        printf("Object size: %u\n", locality_ptrs_size);
 
         double total_max = 0, total_overflows = 0, total_objects_in_overflowed_buckets = 0;
         unsigned worst_max = 0, worst_overflows = 0, worst_objects_in_overflowed_buckets = 0;
         unsigned i;
+        struct result worst_res = result_init(0);
         for(i = 0; i < REPEAT_COUNT; i++) {
             struct result res = simulate(compressed_locality_size, locality_ptrs_size);
             total_max += res.max;
-            worst_max = MAX(worst_max, res.max);
+            if(res.max > worst_max) {
+                worst_res = res;
+                worst_max = res.max;
+            }
             total_overflows += res.overflows;
             worst_overflows = MAX(worst_overflows, res.overflows);
             total_objects_in_overflowed_buckets += res.objects_in_overflowed_buckets;
             worst_objects_in_overflowed_buckets =
                 MAX(worst_objects_in_overflowed_buckets, res.objects_in_overflowed_buckets);
         }
+        print_histogram(worst_res);
         unsigned total_object_count = TOTAL_OBJECT_COUNT(compressed_locality_size);
         printf("Locality size: %7u, Object count: %6u, Avg bucket util.: %7g, %u runs:\n"
                "    Avg Max bucket util.: %7g.   Avg Overflows = %8g Objects in overflowed = %g (%g%%)\n"
