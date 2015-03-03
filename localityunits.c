@@ -7,11 +7,13 @@
 #include <time.h>
 #include <stdbool.h>
 
-#define TOTAL_SIZE    (1ULL << 40)
+#define TOTAL_SIZE    (1ULL << 38)
 #define DIRECT_SIZE   (TOTAL_SIZE / 20)
 #define BUCKET_COUNT  (DIRECT_SIZE / BUCKET_SIZE)
-#define BUCKET_SIZE   (8ULL << 10)
-#define OVERFLOW_THRESHOLD ((8ULL << 10) - 64)
+#define BUCKET_SIZE   (4ULL << 10)
+#define H2OENTRY_SIZE (32)
+#define H2O_OVERHEAD_PER_BUCKET  ((TOTAL_SIZE / DIRECT_SIZE) * H2OENTRY_SIZE / 4096)
+#define OVERFLOW_THRESHOLD ((4ULL << 10) - 64 - H2O_OVERHEAD_PER_BUCKET)
 #define COMPRESSION_RATIO 0.5
 
 #define MAX_OBJS_PER_BUCKET  20
