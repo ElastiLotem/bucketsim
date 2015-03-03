@@ -1,4 +1,4 @@
-CFLAGS=-Wall -O2 -Wextra -I${HOME}/Elastifile/elfs/
+CFLAGS=-Wall -O2 -g -Wextra -I${HOME}/Elastifile/elfs/
 
 .PHONY: default run
 

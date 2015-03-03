@@ -1,37 +1,38 @@
+#include <infra/arithmetic_api.h>
+#include <infra/dstruct/hash.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
 #include <stdbool.h>
-#include <infra/arithmetic_api.h>
-#include <infra/dstruct/hash.h>
 
-#define TOTAL_SIZE    (1ULL << 38)
-#define DIRECT_SIZE   (TOTAL_SIZE / 4)
+#define TOTAL_SIZE    (1ULL << 40)
+#define DIRECT_SIZE   (TOTAL_SIZE / 20)
 #define BUCKET_COUNT  (DIRECT_SIZE / BUCKET_SIZE)
 #define BUCKET_SIZE   (8ULL << 10)
-#define OVERFLOW_THRESHOLD (8ULL << 10)
-#define COMPRESSION_RATIO 0.6842105263157895
+#define OVERFLOW_THRESHOLD ((8ULL << 10) - 64)
+#define COMPRESSION_RATIO 0.5
 
-#define MAX_OBJS_PER_BUCKET  16
+#define MAX_OBJS_PER_BUCKET  20
 
-#define LOCALITY_UNIT_SIZE(ptr_count)      (32 + ((ptr_count) * 14))
+#define LOCALITY_UNIT_SIZE(ptr_count)      (32 + ((ptr_count) * 21))
 
 #define TOTAL_OBJECT_COUNT(locality_size)  ((TOTAL_SIZE - DIRECT_SIZE) / (locality_size))
 
-#define REPEAT_COUNT  (4*128)
+#define REPEAT_COUNT  (16)
 
 struct result {
     unsigned max;
     unsigned max_count;         /* TODO: remove? */
     unsigned overflows;
+    unsigned overflowed_bytes;
     unsigned bucket_utilization_in_objs[MAX_OBJS_PER_BUCKET+1];
     unsigned objects_in_overflowed_buckets;
 };
 static inline struct result result_init(unsigned bucket_count)
 {
-    return (struct result){ 0, 0, 0, {bucket_count}, 0 };
+    return (struct result){ 0, 0, 0, 0, {bucket_count}, 0 };
 }
 
 static inline struct result simulate(unsigned compressed_locality_size, unsigned locality_ptrs_size)
@@ -57,8 +58,10 @@ static inline struct result simulate(unsigned compressed_locality_size, unsigned
         if(new_overflow) {
             if(old_overflow) {
                 res.objects_in_overflowed_buckets++;
+                res.overflowed_bytes += locality_ptrs_size;
             } else {
                 res.objects_in_overflowed_buckets += buckets[index].obj_count;
+                res.overflowed_bytes += buckets[index].byte_count - OVERFLOW_THRESHOLD;
             }
             res.overflows++;
         }
@@ -107,6 +110,7 @@ static inline void simulate_repeatedly(void)
 
         printf("Object size: %u\n", locality_ptrs_size);
 
+        double total_overflowed_bytes = 0;
         double total_max = 0, total_overflows = 0, total_objects_in_overflowed_buckets = 0;
         unsigned worst_max = 0, worst_overflows = 0, worst_objects_in_overflowed_buckets = 0;
         unsigned i;
@@ -123,13 +127,16 @@ static inline void simulate_repeatedly(void)
             total_objects_in_overflowed_buckets += res.objects_in_overflowed_buckets;
             worst_objects_in_overflowed_buckets =
                 MAX(worst_objects_in_overflowed_buckets, res.objects_in_overflowed_buckets);
+            total_overflowed_bytes += res.overflowed_bytes;
         }
         print_histogram(worst_res);
         unsigned total_object_count = TOTAL_OBJECT_COUNT(compressed_locality_size);
-        printf("Locality size: %7u, Object count: %6u, Avg bucket util.: %7g, %u runs:\n"
+        unsigned long total_byte_count = (unsigned long)total_object_count * locality_ptrs_size;
+        printf("Locality size: %7u, Ptrs size: %4u, Object count: %6u, Avg bucket util.: %7g, %u runs:\n"
                "    Avg Max bucket util.: %7g.   Avg Overflows = %8g Objects in overflowed = %g (%g%%)\n"
-               "  Worst Max bucket util.: %7u. Worst Overflows = %8u Worst Objects in overflowed = %u (%g%%)\n",
-               raw_locality_size, total_object_count,
+               "  Worst Max bucket util.: %7u. Worst Overflows = %8u Worst Objects in overflowed = %u (%g%%)\n"
+               "    Avg overflowed bytes: %7g (%g%%)\n",
+               raw_locality_size, locality_ptrs_size, total_object_count,
                1.0 * total_object_count * locality_ptrs_size / BUCKET_COUNT,
                REPEAT_COUNT,
                /* Avg's */
@@ -141,7 +148,9 @@ static inline void simulate_repeatedly(void)
                worst_max,
                worst_overflows,
                worst_objects_in_overflowed_buckets,
-               worst_objects_in_overflowed_buckets * 100.0 / total_object_count);
+               worst_objects_in_overflowed_buckets * 100.0 / total_object_count,
+               total_overflowed_bytes / REPEAT_COUNT,
+               total_overflowed_bytes / REPEAT_COUNT * 100.0 / total_byte_count);
     }
 }
 
