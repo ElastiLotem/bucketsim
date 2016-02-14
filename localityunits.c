@@ -9,7 +9,7 @@
 #include <assert.h>
 #include <inttypes.h>
 
-#define TOTAL_SIZE    (1ULL << 40)
+#define TOTAL_SIZE    (1ULL << 38)
 #define DIRECT_SIZE   (TOTAL_SIZE / 20)
 #define BUCKET_COUNT  (DIRECT_SIZE / BUCKET_SIZE)
 #define BUCKET_SIZE   (4ULL << 10)
@@ -20,9 +20,9 @@
 
 #define MAX_OBJS_PER_BUCKET  20
 
-#define LOCALITY_UNIT_SIZE(ptr_count)      3200 // (32 + ((ptr_count) * 21))
+#define LOCALITY_UNIT_SIZE(ptr_count)      50 // (32 + ((ptr_count) * 21))
 
-#define TOTAL_OBJECT_COUNT(locality_size)  ((TOTAL_SIZE - DIRECT_SIZE) / (locality_size))
+#define TOTAL_OBJECT_COUNT(locality_size)  ((TOTAL_SIZE - DIRECT_SIZE) / 25 / (locality_size))
 
 #define REPEAT_COUNT  (16LU)
 
@@ -119,10 +119,11 @@ static void print_histogram(struct result res)
 
 static inline void simulate_repeatedly(void)
 {
-    printf("Total size = %llu MB, Bucket count = %llu, bucket size = %lluKB, compression_ratio = %g\n",
-           TOTAL_SIZE >> 20, BUCKET_COUNT, BUCKET_SIZE >> 10, COMPRESSION_RATIO);
+    printf("Total size = %llu MB, Bucket count = %llu (%.2f%%), bucket size = %lluKB, compression_ratio = %g\n",
+           TOTAL_SIZE >> 20, BUCKET_COUNT, BUCKET_COUNT*BUCKET_SIZE*100.0d/TOTAL_SIZE,
+           BUCKET_SIZE >> 10, COMPRESSION_RATIO);
     uint64_t raw_locality_size;
-    for(raw_locality_size = (1ULL<<19); raw_locality_size <= (1ULL<<19); raw_locality_size *= 2) {
+    for(raw_locality_size = (1ULL<<12); raw_locality_size <= (1ULL<<12); raw_locality_size *= 2) {
         uint64_t compressed_locality_size = raw_locality_size * COMPRESSION_RATIO;
 //        uint64_t ptr_count = raw_locality_size >> 12;
         uint64_t locality_ptrs_size = LOCALITY_UNIT_SIZE(ptr_count);
