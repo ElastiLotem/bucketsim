@@ -18,7 +18,7 @@
 #define OVERFLOW_THRESHOLD ((4ULL << 10) - 64) // - H2O_OVERHEAD_PER_BUCKET)
 #define COMPRESSION_RATIO 0.5
 
-#define MAX_OBJS_PER_BUCKET  20
+#define MAX_OBJS_PER_BUCKET  15
 
 #define LOCALITY_UNIT_SIZE(ptr_count)      3200 // (32 + ((ptr_count) * 21))
 
