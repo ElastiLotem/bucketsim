@@ -49,9 +49,10 @@ static inline struct result simulate(uint64_t compressed_locality_size, uint64_t
     static struct bucket buckets[BUCKET_COUNT]; // Not thread safe!
     memset(buckets, 0, sizeof buckets);
     struct result res = result_init(BUCKET_COUNT);
+    uint64_t murmur = random();
     uint64_t iter = 0;
-    for(iter = 0; iter < TOTAL_OBJECT_COUNT(compressed_locality_size); iter++) {
-        uint64_t murmur = hash_murmur_hash64(PS(iter), 0);
+    for(; iter < TOTAL_OBJECT_COUNT(compressed_locality_size); iter++) {
+        murmur = hash_murmur_hash64(PS(murmur), 0);
         uint64_t index = murmur /* random() */ % BUCKET_COUNT;
         bool old_overflow = buckets[index].byte_count > OVERFLOW_THRESHOLD;
         buckets[index].byte_count += locality_ptrs_size;
