@@ -1,4 +1,4 @@
-CFLAGS=-Wall -O2 -g -Wextra -I${HOME}/Elastifile/elfs/elfs
+CFLAGS=-Wall -O2 -g -Wextra -I${HOME}/git/elfs-system/elfs
 
 .PHONY: default run
 
@@ -13,5 +13,5 @@ runlocalityunits: localityunits
 randombucket: randombucket.c
 	gcc -o $@ $^ ${CFLAGS} -lm
 
-localityunits: localityunits.c ${HOME}/Elastifile/elfs/elfs/infra/dstruct/hash.c
+localityunits: localityunits.c ${HOME}/git/elfs-system/elfs/infra/dstruct/hash.c
 	gcc -o $@ $^ ${CFLAGS} -lm
